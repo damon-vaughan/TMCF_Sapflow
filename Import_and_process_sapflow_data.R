@@ -1,3 +1,5 @@
+# Damon's sapflow data processing script. Last update mid September 2023
+
 library(needs)
 needs(tidyverse, readxl, lubridate, here, filters, zoo)
 
@@ -220,7 +222,8 @@ sfd.bad.expanded <- sfd.bad2 %>%
   unnest(bad.data) %>%
   distinct()
 
-i <- "ET8"
+# i <- "ET8"
+hampel.flags <- NULL
 for(i in TreeVec){
   d <-  read_csv(str_c("Sapflow_data_L1/", i, "_Sapflow_L1.csv"),
                  show_col_types = F)
@@ -258,14 +261,133 @@ for(i in TreeVec){
   d5.split <- d5 %>%
     split(~Cable)
 
-  # Use the hampel filter from the filters package
+  # Use the hampel filter from the filters package...much faster than pracna
   d5.split2 <- lapply(d5.split, apply_hampel_to_SF2)
 
   d6 <- d5.split2 %>%
     bind_rows()
 
-  write_csv(d6, str_c("Sapflow_data_L2/", i, "_Sapflow_L2.csv"))
+  # Split off the flag columns to a separate df
+  to.bind <- d6 %>%
+    select(-outer_vel, -middle_vel, -inner_vel) %>%
+    filter(is.na(outer_flag) == F | is.na(middle_flag) == F |
+             is.na(inner_flag) == F)
+  if(nrow(to.bind) != 0){
+    hampel.flags <- bind_rows(hampel.flags, to.bind)
+  }
+
+  d7 <- d6 %>%
+    select(-outer_flag, -middle_flag, -inner_flag)
+
+  write_csv(d7, str_c("Sapflow_data_L2/", i, "_Sapflow_L2.csv"))
   cat("Created L2 data for:", i, "\n")
 }
+write_csv(hampel.flags, file.path("Sapflow_data_supporting", "Hampel_flags.csv"))
 
+# L2 to L3 ---------------------------------------------------------------------
+# Baseline
 
+# SF_actions needed to identify when sensors were moved
+SF_actions <- read_csv(file.path("Sapflow_data_supporting",
+                                 "Sapflow_maintenance_actions.csv")) %>%
+  mutate(Action = ifelse(Action == "M" | Action == "R" | Action == "MR",
+                         "AddOne", Action)) %>%
+  filter(is.na(Action) == F)
+
+# Drop known baseline period issues here
+Zeroes <- read_csv(file.path("Sapflow_data_supporting", "Zeroes_full.csv"),
+                   show_col_types = F) %>%
+  filter(Tree != "FB2" |
+           (periodBegin != ymd_hms("2022-10-31 18:00:00", tz = "UTC") &
+           periodBegin != ymd_hms("2022-10-30 18:00:00", tz = "UTC")))
+
+TreeVec <- FullTreeVec
+TreeVec <- "FB2"
+baseline.flags <- NULL
+for(i in TreeVec){
+
+  d <- read_csv(str_c("Sapflow_data_L2/", i, "_Sapflow_L2.csv"),
+                show_col_types = FALSE)
+
+  # Bring in the zeroes df created in the Microclimate project
+  Zeroes.sub <- Zeroes %>%
+    filter(Tree == i) %>%
+    select(-Tree) %>%
+    filter(periodBegin >= min(d$Timestamp)) %>%
+    rowid_to_column("Group")
+
+  # Make expanded zeroes df
+  expanded_zeroes <- expand_zeroes(Zeroes.sub)
+
+  # Bring in a nested df of the values to use
+  valsToUse <- find_baselining_values(d, expanded_zeroes, Zeroes.sub)
+
+  # Prep the actual data to be joined onto the valsToUse data. Add Grouping column and carry numbers forward
+  d2 <- d %>%
+    left_join(Zeroes.sub, by = c("Timestamp" = "periodBegin")) %>%
+    select(-periodEnd) %>%
+    mutate(Group = ifelse(Timestamp == min(Timestamp), 0, Group),
+           NewGroup = ifelse(is.na(Group) == F, "yes", NA)) %>%
+    mutate(Group = na.locf(Group))
+
+  # Adjust group upward after any sensor changes. This is so zeroing values from the previous installation aren't used on the new one. This only applies to the group immediately following the change- later groups are unaffected
+  d3 <- d2 %>%
+    separate(Cable, into = c("CableNum", "Letter"), sep = 1, remove = F) %>%
+    mutate(CableNum = as.numeric(CableNum)) %>%
+    left_join(SF_actions,
+              by = c("Tree", "CableNum" = "Cable", "Timestamp")) %>%
+    # Assigning "End" here stops the fill-forward at the end of the group
+    mutate(Action = ifelse(is.na(NewGroup) == F, "End", Action)) %>%
+    # Fill-forward the NAs
+    mutate(Action = na.locf(Action)) %>%
+    # Add 1 to the group numbers where appropriate
+    mutate(Group = ifelse(Action == "AddOne" & Group < max(d2$Group),
+                          Group + 1, Group)) %>%
+    select(-NewGroup, -Action, -CableNum, -Letter)
+
+  # d3.nst <- d3 %>%
+  #   group_by(Cable, Group) %>%
+  #   nest() %>%
+  #   left_join(valsToUse.nst, by = c("Cable", "Group"))
+
+  d4 <- d3 %>%
+    left_join(valsToUse, by = c("Tree", "Cable", "Group"))
+
+  # Create and save a separate df to track baselining issues
+  to.bind <- d4 %>%
+    select(Tree, Cable, Timestamp, baseline_inner, baseline_middle,
+           baseline_outer) %>%
+    mutate(baseline_inner = ifelse(is.na(baseline_inner) == T, "no_bl_val", NA),
+           baseline_middle = ifelse(is.na(baseline_middle) == T, "no_bl_val", NA),
+           baseline_outer = ifelse(is.na(baseline_outer) == T,
+                                   "no_bl_val", NA)) %>%
+    filter(is.na(baseline_inner) == F | is.na(baseline_middle) == F |
+             is.na(baseline_outer) == F)
+  if(nrow(to.bind) != 0){
+    baseline.flags <- bind_rows(baseline.flags, to.bind)
+  }
+
+  d5 <- d4 %>%
+    replace_na(list(baseline_outer = 0, baseline_middle = 0,
+                    baseline_inner = 0)) %>%
+    mutate(outer_vel = outer_vel - baseline_outer,
+           middle_vel = middle_vel - baseline_middle,
+           inner_vel = inner_vel - baseline_inner) %>%
+    select(-Group, -periodBegin, -baseline_inner,
+           -baseline_middle, -baseline_outer)
+
+  # Apply the function to the nested dataframe
+  # baselined <- d3.nst %>%
+  #   mutate(baselined = map2(data, valsToUse, baseline_sfd)) %>%
+  #   select(Cable, Group, baselined) %>%
+  #   unnest(baselined) %>%
+  #   ungroup() %>%
+  #   select(-Group)
+
+  write_csv(d5, here("Sapflow_data_L3",
+                            str_c(i, "_Sapflow_L3.csv")))
+  cat("L3 data saved for", i, "\n")
+}
+
+write_csv(baseline.flags, file.path("Sapflow_data_supporting",
+                                    str_c("Baseline_flags.csv")))

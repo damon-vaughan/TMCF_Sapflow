@@ -1,4 +1,4 @@
-# Functions and constants for Sapflow diagnostic and processing
+# Functions and constants for Sapflow diagnostic and processing. Last update mid Sept 2023
 
 # Constants ---------------------------------------------------------------
 port.numbers.full <- str_c(rep("Port", 64), seq(1:64))
@@ -189,15 +189,16 @@ apply_hampel_to_SF2 <- function(x){
 }
 
 
-# LVL2 to LVL3 ------------------------------------------------------------
+# L2 to L3 ------------------------------------------------------------
 
 # Make long dataframe of all times meeting the zero criteria.
-expand_zeroes <- function(x){
+expand_zeroes <- function(zeroes.og){
+  # results <- data.frame(Timestamp = min(df$Timestamp, na.rm = T), Group = 0)
   results <- NULL
-  for(i in 1:nrow(x)){
+  for(i in 1:nrow(zeroes.og)){
     toBind <- data.frame(
-      Timestamp = seq(from = x$periodBegin[i],
-                 to = x$periodEnd[i],
+      Timestamp = seq(from = zeroes.og$periodBegin[i],
+                 to = zeroes.og$periodEnd[i],
                  by = "15 min")) %>%
       mutate(Group = i)
     results <- bind_rows(results, toBind)
@@ -205,14 +206,60 @@ expand_zeroes <- function(x){
   return(results)
 }
 
+# Use period start and end times to look up the values to be used in baselining. Values need to be averaged, cleaned, and prepped
+find_baselining_values <- function(df, zeroes.exp, zeroes.og){
+  valsToUse <- df %>%
+    left_join(zeroes.exp, by = "Timestamp") %>%
+    filter(is.na(Group) == F) %>%
+    group_by(Tree, Cable, Group) %>%
+    # Average all the sapflow values during the windows
+    summarise(across(c("inner_vel", "middle_vel", "outer_vel"),
+                     ~mean(.x, na.rm = T))) %>%
+    ungroup() %>%
+    # Join Zeroes.og again so we know when the zeroing period starts
+    left_join(zeroes.og, by = "Group") %>%
+    select(-periodEnd)
+
+  # Need to create a zero row for all groups. Use the same values as Row 1
+  firstRows <- valsToUse %>%
+    # filter(is.na(outer_vel) == F | is.na(middle_vel) == F |
+    #          is.na(inner_vel) == F) %>%
+    group_by(Cable) %>%
+    filter(Group == min(Group)) %>%
+    mutate(Group = 0) %>%
+    replace_na(list(outer_vel = 0, middle_vel = 0, inner_vel = 0))
+
+  # Add zero row to valstouse, and fill forward the NAs
+  valsToUse2 <- bind_rows(firstRows, valsToUse) %>%
+    arrange(Cable, Group) %>%
+    group_by(Cable) %>%
+    mutate(baseline_inner = na.locf(inner_vel),
+           baseline_middle = na.locf(middle_vel),
+           baseline_outer = na.locf(outer_vel)) %>%
+    ungroup() %>%
+    select(-inner_vel, -middle_vel, -outer_vel)
+
+  # valsToUse.nst <- valsToUse2 %>%
+  #   group_by(Cable, Group) %>%
+  #   nest() %>%
+  #   rename(valsToUse = data)
+
+  return(valsToUse2)
+}
+
+df <- d3.nst$data[[1]]
+baseline.vals <- valsToUse.nst$valsToUse[[1]]
+
 # This function written for purr. x is the actual data (LVL1b.nst), and y is the data used to baseline it.
-baseline_sfd <- function(x, y){
-  baselined = x %>%
-    mutate(outer_vel = outer_vel - unique(y$outer_vel),
-           middle_vel = middle_vel - unique(y$middle_vel),
-           inner_vel = inner_vel - unique(y$inner_vel))
+baseline_sfd <- function(df, baseline.vals){
+  baselined <- df %>%
+    mutate(outer_vel = outer_vel - unique(baseline.vals$outer_vel),
+           middle_vel = middle_vel - unique(baseline.vals$middle_vel),
+           inner_vel = inner_vel - unique(baseline.vals$inner_vel))
   return(baselined)
 }
+x <- 16
+baseline_sfd(d3.nst$data[[x]], valsToUse.nst$valsToUse[[x]])
 
 # Plotting functions -----------------------------------------
 
