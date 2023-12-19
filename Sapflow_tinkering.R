@@ -5,7 +5,17 @@ needs(tidyverse, here, readxl, lubridate, corrr)
 # Functions:
 source("SF_Functions.R")
 
-# Make sapflow maintenance actions sheet ---------------------------------------
+
+# Check small batt voltages -----------------------------------------------
+TreeID <- "TV4"
+d <- read_csv(file.path("Sapflow_data_raw", str_c(TreeID, "_Sapflow.csv")))
+
+ggplot(d %>% filter(Big_Battery_Voltage != 0)) +
+  geom_line(aes(x = Time, y = Big_Battery_Voltage)) +
+  geom_hline(yintercept = 11.75) +
+  theme_bw()
+
+# Make sapflow maintenance actions sheet -----------------------
 
 TreeVec <- FullTreeVec
 

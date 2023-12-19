@@ -5,7 +5,7 @@ port.numbers.full <- str_c(rep("Port", 64), seq(1:64))
 probe_wiring_key <- c("Outer", "Middle", "Inner")
 Thermal_Diffusivity_of_Green_Wood <- 0.0019
 Distance_Between_Heater_and_Probes <- 0.5 # Units: cm
-FullTreeVec <- c("ET1", "ET2", "ET3", "ET4", "ET5", "ET6", "ET7", "ET8",
+full.tree.vec <- c("ET1", "ET2", "ET3", "ET4", "ET5", "ET6", "ET7", "ET8",
              "FB1", "FB2", "FB3", "FB4", "FB5", "FB6", "FB7", "FB8",
              "TV1", "TV2", "TV3", "TV4")
 
@@ -157,7 +157,6 @@ apply_letter <- function(x){
 #   return(output)
 # }
 
-library(filters)
 apply_hampel_to_SF2 <- function(x){
   x2 <- x %>%
     mutate(outer_vel_hampel = filters::hampel(outer_vel, window_size = 48,
@@ -190,6 +189,84 @@ apply_hampel_to_SF2 <- function(x){
 
 
 # L2 to L3 ------------------------------------------------------------
+
+# Function from Danel to find zeroing periods from MC data
+getThreeHourZeroes <- function(x, thresh.LWS, thresh.Sol, thresh.VPD){
+  zeroesDF <- data.frame(
+    "periodBegin" = ymd_hm("2022-08-01 00:00", tz = "UTC"),
+    "periodEnd" = ymd_hm("2022-08-01 00:0", tz = "UTC"))
+  zeroesDF <- zeroesDF[-1,]
+  zeroesDF
+
+  conditionFulfilledDF <- x %>%
+    filter(Wetness < thresh.LWS & Solar == thresh.Sol &
+             VPD < thresh.VPD)
+  counter <- 0
+
+  for(i in seq(2, nrow(conditionFulfilledDF), by = 1)){
+    diff <- difftime(conditionFulfilledDF$Timestamp[i],
+                     conditionFulfilledDF$Timestamp[i - 1],
+                     units = "mins")
+    diff <- as.numeric(diff)
+    if(diff == 15){
+      counter <- counter + 1
+      #print(counter)
+    } else {
+      if(counter >= 12){
+        zeroesDF <- zeroesDF %>%
+          add_row(periodBegin = conditionFulfilledDF$Timestamp[i - counter - 1],
+                  periodEnd = conditionFulfilledDF$Timestamp[i - 1])
+      }
+      counter <- 0
+    }
+  }
+
+  if(counter >= 12){
+    zeroesDF <- zeroesDF %>%
+      add_row(periodBegin =
+                conditionFulfilledDF$Timestamp[
+                  nrow(conditionFulfilledDF)-counter],
+              periodEnd = conditionFulfilledDF$Timestamp[
+                nrow(conditionFulfilledDF)])
+  }
+  return(zeroesDF)
+}
+
+adjust6amTo6pm <- function(x){
+  #x <- zeroesGuindon
+  x$duration <- x$periodEnd - x$periodBegin
+  x$startNew <- x$periodBegin
+  x$endNew <- x$periodEnd
+  for(i in 1:nrow(x)){ #  i <- 1
+    if(hour(x$periodBegin[i]) < 18){
+      if(hour(x$periodBegin[i]) >= 6){
+        x$startNew[i] <- x$startNew[i] +
+          (17 - hour(x$startNew[i]))*3600 +
+          (60 - minute(x$startNew[i]))*60
+      }
+    }
+
+    if(hour(x$periodEnd[i]) > 6){
+      if(hour(x$periodEnd[i]) < 18){
+        x$endNew[i] <- x$endNew[i] -
+          (hour(x$endNew[i])-6)*3600 -
+          minute(x$endNew[i])*60
+      }
+    }
+
+    if(hour(x$periodEnd[i]) == 6 & minute(x$periodEnd[i]) > 0){
+      x$endNew[i] <- x$endNew[i] -
+        (hour(x$endNew[i])-6)*3600 -
+        minute(x$endNew[i])*60
+    }
+  }
+
+  x$newDuration <- x$endNew - x$startNew
+  x <- subset(x, newDuration >= 3)
+  x <- x[, c("startNew", "endNew")]
+  names(x) <- c("periodBegin", "periodEnd")
+  return(x)
+}
 
 # Make long dataframe of all times meeting the zero criteria.
 expand_zeroes <- function(zeroes.og){
@@ -247,8 +324,8 @@ find_baselining_values <- function(df, zeroes.exp, zeroes.og){
   return(valsToUse2)
 }
 
-df <- d3.nst$data[[1]]
-baseline.vals <- valsToUse.nst$valsToUse[[1]]
+# df <- d3.nst$data[[1]]
+# baseline.vals <- valsToUse.nst$valsToUse[[1]]
 
 # This function written for purr. x is the actual data (LVL1b.nst), and y is the data used to baseline it.
 baseline_sfd <- function(df, baseline.vals){
@@ -258,8 +335,8 @@ baseline_sfd <- function(df, baseline.vals){
            inner_vel = inner_vel - unique(baseline.vals$inner_vel))
   return(baselined)
 }
-x <- 16
-baseline_sfd(d3.nst$data[[x]], valsToUse.nst$valsToUse[[x]])
+# x <- 16
+# baseline_sfd(d3.nst$data[[x]], valsToUse.nst$valsToUse[[x]])
 
 # Plotting functions -----------------------------------------
 
