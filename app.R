@@ -2,6 +2,7 @@ library(needs)
 needs(shiny, tidyverse, lubridate)
 
 options(readr.show_col_types = FALSE)
+source("app_functions_SF.R")
 
 import.log <- read_csv(file.path("Sapflow_data_supporting", "Sapflow_data_import_log.csv"))
 
@@ -27,14 +28,25 @@ ui <- basicPage(
 
   sidebarLayout(
     sidebarPanel(
-      # helpText("View Sapflow data"),
 
-      sliderInput("dates",
+      sliderInput("daterange",
                   label = h4("Select date range"),
                   min = ymd_hms("2022-09-01 00:00:00", tz = "UTC"),
                   max = max(import.log$Last.import),
                   value = c(ymd_hms("2022-09-01 00:00:00", tz = "UTC"),
                             max(import.log$Last.import))),
+      fluidRow(
+        column(3,
+               radioButtons("fixed.y",
+                            label = h4("Fix y-axis?"),
+                            choices = c("Yes", "No"),
+                            selected = "No")),
+        column(9,
+               sliderInput("yrange",
+                           label = h4("Select y-axis range"),
+                           min = -10,
+                           max = 30,
+                           value = c(-10, 30)))),
 
       titlePanel("Viewing options"),
 
@@ -57,7 +69,7 @@ ui <- basicPage(
       ),
 
       fluidRow(
-        column(2,
+        column(3,
                radioButtons("Tree_view",
                             label = h4("Select tree"),
                             choices = c("ET1", "ET2", "ET3", "ET4",
@@ -65,8 +77,8 @@ ui <- basicPage(
                                         "FB1", "FB2", "FB3", "FB4",
                                         "FB5", "FB6", "FB7", "FB8",
                                         "TV1", "TV2", "TV3", "TV4"),
-                            selected = "FB1")),
-        column(2, offset = 1,
+                            selected = "ET1")),
+        column(3, offset = 1,
                radioButtons("Cable_view",
                             label = h4("Select cable"),
                             choices = c("1", "2", "3", "4",
@@ -75,20 +87,13 @@ ui <- basicPage(
                checkboxGroupInput("Cable_subseries",
                                   label = h4("Select sub-series"),
                                   choices = c("a", "b", "c", "d"),
-                                  selected = c("a", "b", "c", "d")))),
+                                  selected = c("a", "b", "c", "d")),
+               radioButtons("Time.res",
+                            label = h4("Select time resolution"),
+                            choices = c("15 Min", "Hourly", "Daily", "Weekly"),
+                            selected = "15 Min"))),
 
       titlePanel("Download options"),
-
-      fluidRow(
-        column(2,
-               checkboxGroupInput("Tree_DL",
-                                  label = h4("Select tree"),
-                                  choices = c("ET1", "ET2", "ET3", "ET4",
-                                              "ET5", "ET6", "ET7", "ET8",
-                                              "FB1", "FB2", "FB3", "FB4",
-                                              "FB5", "FB6", "FB7", "FB8",
-                                              "TV1", "TV2", "TV3", "TV4"),
-                                  selected = "FB1"))),
 
       radioButtons("Time_format",
                    label = h4("Select time format"),
@@ -99,14 +104,18 @@ ui <- basicPage(
     ),
 
     mainPanel(
-      "Graph shows data until:",
-      verbatimTextOutput("maxdate.output"),
-      plotOutput("plot", width = p.width, height = p.height,
-                 hover = "plot_hover",
-                 brush = "plot_brush"),
-      verbatimTextOutput("plot_hoverinfo"),
-      plotOutput("plot_brushedpoints")
-      )
+      tabsetPanel(
+        type = "tabs",
+        tabPanel("Plot",
+                 "Graph shows data until:",
+                 verbatimTextOutput("max.date.out"),
+                 plotOutput("plot", width = p.width, height = p.height,
+                            click = "plot_click",
+                            brush = "plot_brush"),
+                 verbatimTextOutput("plot_clickinfo"),
+                 plotOutput("plot_brushedpoints")),
+        tabPanel("Data", tableOutput("data1"), tableOutput("data2")),
+        tabPanel("Summary", tableOutput("summary"))))
   )
 )
 
@@ -119,19 +128,39 @@ server <- function(input, output, session) {
                        str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")),
              show_col_types = F) %>%
       filter(Cable == input$Cable_view) %>%
-      filter(Timestamp >= as.POSIXct(input$dates[1], tz = "UTC")  &
-               Timestamp <= as.POSIXct(input$dates[2], tz = "UTC"))
+      filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+               Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))
       } else {
         read_csv(file.path(str_c("Sapflow_data_", input$Level),
                          str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")),
                show_col_types = F) %>%
         filter(Cable == str_c(input$Cable_view, input$Cable_subseries)) %>%
-        filter(Timestamp >= as.POSIXct(input$dates[1], tz = "UTC")  &
-                 Timestamp <= as.POSIXct(input$dates[2], tz = "UTC"))}
+        filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+                 Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))}
     })
 
   dataInput2 <- reactive({
-    dataInput() %>%
+    if(input$Time.res == "15 Min"){
+      dataInput()
+    } else if(input$Time.res == "Hourly"){
+      dataInput() %>%
+        group_by(Tree, Cable, Timestamp = floor_date(Timestamp, "hour")) %>%
+        summarise(across(where(is.numeric), ~mean(., na.rm = T))) %>%
+        ungroup()
+    } else if(input$Time.res == "Daily"){
+      dataInput() %>%
+        group_by(Tree, Cable, Timestamp = floor_date(Timestamp, "day")) %>%
+        summarise(across(where(is.numeric), ~mean(., na.rm = T))) %>%
+        ungroup()
+    } else if(input$Time.res == "Weekly"){
+      dataInput() %>%
+        group_by(Tree, Cable, Timestamp = floor_date(Timestamp, "week")) %>%
+        summarise(across(where(is.numeric), ~mean(., na.rm = T))) %>%
+        ungroup()}
+  })
+
+  dataInput3 <- reactive({
+    dataInput2() %>%
       pivot_longer(4:6, names_to = "Position", values_to = "Velocity")
   })
 
@@ -139,8 +168,8 @@ server <- function(input, output, session) {
     baseline.flags %>%
       filter(Tree == input$Tree_view) %>%
       filter(Cable == str_c(input$Cable_view, input$Cable_subseries)) %>%
-      filter(Timestamp >= as.POSIXct(input$dates[1], tz = "UTC")  &
-               Timestamp <= as.POSIXct(input$dates[2], tz = "UTC")) %>%
+      filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+               Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC")) %>%
       left_join(dataInput(), by = c("Tree", "Cable", "Timestamp")) %>%
       select(Tree, Cable, Timestamp, outer_vel, middle_vel, inner_vel) %>%
       pivot_longer(4:6, names_to = "Position", values_to = "Velocity")
@@ -150,29 +179,29 @@ server <- function(input, output, session) {
     SF.actions %>%
       filter(Tree == input$Tree_view) %>%
       filter(Cable == input$Cable_view) %>%
-      filter(Timestamp >= as.POSIXct(input$dates[1], tz = "UTC")  &
-               Timestamp <= as.POSIXct(input$dates[2], tz = "UTC"))
+      filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+               Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))
   })
 
   zeroesInput <- reactive({
     zeroes %>%
       filter(Tree == input$Tree_view) %>%
-      filter(periodBegin >= as.POSIXct(input$dates[1], tz = "UTC")  &
-               periodBegin <= as.POSIXct(input$dates[2], tz = "UTC"))
+      filter(periodBegin >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+               periodBegin <= as.POSIXct(input$daterange[2], tz = "UTC"))
   })
 
-  output$maxdate.output <- renderText({
-    as.character(max(dataInput()$Timestamp))
+  output$max.date.out <- renderText({
+    as.character(max(dataInput2()$Timestamp))
   })
 
   output$plot <- renderPlot({
     p <- ggplot() +
-      geom_line(data = dataInput2(), aes(x = Timestamp, y = Velocity)) +
+      geom_line(data = dataInput3(), aes(x = Timestamp, y = Velocity)) +
       geom_hline(yintercept = 0) +
       labs(y = "cm / hour") +
       scale_x_datetime(
-        limits = c(as.POSIXct(input$dates[1], tz = "UTC"),
-                   as.POSIXct(input$dates[2], tz = "UTC"))) +
+        limits = c(as.POSIXct(input$daterange[1], tz = "UTC"),
+                   as.POSIXct(input$daterange[2], tz = "UTC"))) +
       theme_bw() +
       theme(axis.title.x = element_blank(),
             axis.text.x = element_text(size = 18),
@@ -181,10 +210,16 @@ server <- function(input, output, session) {
             plot.title = element_text(size = 24)) +
       ggtitle(str_c(input$Tree_view, "_", input$Cable_view)) +
       facet_wrap(~Position, ncol = 1, scales = "fixed")
+
+    if(input$fixed.y == "Yes"){
+      p <- p +
+        ylim(input$yrange[1], input$yrange[2])
+    }
+
     if(input$Show_zeroes == "yes"){
       p2 <- p +
         geom_vline(data = zeroesInput(), aes(xintercept = periodBegin,
-                                             y = min(dataInput2()$Velocity, na.rm = T)),
+                                             y = min(dataInput3()$Velocity, na.rm = T)),
         color = "blue")} else {
           p2 <- p
         }
@@ -205,13 +240,13 @@ server <- function(input, output, session) {
     p4},
     width = p.width, height = p.height)
 
-  output$plot_hoverinfo <- renderText({
-    val <- nearPoints(dataInput2(), input$plot_hover, maxpoints = 1)
+  output$plot_clickinfo <- renderPrint({
+    val <- nearPoints(dataInput3(), input$plot_click, maxpoints = 1)
     as.character(unique(val$Timestamp))
   })
 
   output$plot_brushedpoints <- renderPlot({
-    dat <- brushedPoints(dataInput2(), input$plot_brush)
+    dat <- brushedPoints(dataInput3(), input$plot_brush)
     if (nrow(dat) == 0)
       return()
     ggplot(dat) +
@@ -228,27 +263,46 @@ server <- function(input, output, session) {
       facet_wrap(~Position, ncol = 1, scales = "fixed")
   })
 
-  dataDL <- reactive({
-    L3 %>%
-      filter(Tree %in% input$Tree_DL)
+  ## Data and summary --------------------------------------------------------
+
+  data.for.summaries <- reactive({
+    dataInput2() %>%
+      mutate(Timestamp = as.character(Timestamp))
   })
 
-  dataDL2 <- reactive({
+  output$data1 <- renderTable({
+    head(data.for.summaries())
+  })
+
+  output$data2 <- renderTable({
+    tail(data.for.summaries())
+  })
+
+  output$summary <- renderTable({
+    summarise_sapflow(data.for.summaries())
+  })
+
+  ## Download data options ---------------------------------------------------
+
+  data.for.download <- reactive({
     if(input$Time_format == "ISO"){
-      dataDL()
+      dataInput2()
     } else if(input$Time_format == "Excel_ready"){
-      dataDL() %>%
+      dataInput2() %>%
         mutate(Timestamp = as.character(Timestamp))
     }
   })
 
   output$downloadData <- downloadHandler(
     filename = function() {
-      str_c(str_c(str_flatten(input$Tree_DL, collapse = "_"), input$dates[1], input$dates[2], sep = "_"),
+      str_c(str_c(input$Tree_view, str_c("Cable", input$Cable_view),
+                  str_sub(as.character(input$daterange[1]), start = 1, end = 10),
+                  str_sub(as.character(input$daterange[2]), start = 1, end = 10),
+                  sep = "_"),
             ".csv")
     },
     content = function(file) {
-      write_csv(dataDL2(), file)
+      write_csv(data.for.download(), file)
     }
   )
 }
@@ -259,15 +313,28 @@ shinyApp(ui, server)
 
 # Test server -------------------------------------------------------------
 
+# test <- testServer(server, {
+#   session$setInputs(Tree_view = "FB1")
+#   session$setInputs(Level = "L3")
+#   session$setInputs(Cable_view = "1")
+#   session$setInputs(Cable_subseries = "a")
+#   session$setInputs(Time.res = "Hourly")
+#   # session$setInputs(daterange = c(min = ymd("2022-09-01"),
+#   #                             max = ymd("2023-04-30")))
+#   session$setInputs(daterange = c(min = ymd("2022-09-01"),
+#                               max = max(import.log$Last.import)))
+#   test <<- print(dataInput2())
+# })
+
 # Testing labels
 # test <- testServer(server, {
 #   session$setInputs(Tree_view = "FB6")
 #   session$setInputs(Level = "L2")
 #   session$setInputs(Cable_view = "1")
 #   session$setInputs(Cable_subseries = "a")
-#   # session$setInputs(dates = c(min = ymd("2022-09-01"),
+#   # session$setInputs(daterange = c(min = ymd("2022-09-01"),
 #   #                             max = ymd("2023-04-30")))
-#   session$setInputs(dates = c(min = ymd("2022-09-01"),
+#   session$setInputs(daterange = c(min = ymd("2022-09-01"),
 #                               max = maxdate))
 #   print(dataInput())
 # })
@@ -278,10 +345,10 @@ shinyApp(ui, server)
 #   session$setInputs(Level = "L2")
 #   session$setInputs(Cable_view = "1")
 #   session$setInputs(Cable_subseries = "a")
-#   session$setInputs(dates = c(min = ymd("2022-09-01"),
+#   session$setInputs(daterange = c(min = ymd("2022-09-01"),
 #                               max = maxdate))
 #   # print(file.path(str_c("Sapflow_data_", input$Level),
 #   #           str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")))
 #   str(dataInput())
-#   # print(output$maxdate.output)
+#   # print(output$max.date.out)
 # })

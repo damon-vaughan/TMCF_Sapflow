@@ -26,17 +26,17 @@ read_sapflow_dat <- function(x){
   return(x3)
 }
 
-# Function format data from .dat file: convert all non-time columns to numeric, rename the first five columns, and add a TreeID column at the beginning.
+# Function format data from .dat file: convert all non-time columns to numeric, rename the first five columns, and add a Tree column at the beginning.
 # x is output from read_sapflow__dat, which must be in R environment
 format_sapflow_dat <- function(x){
   x %>%
     mutate(across(2:ncol(x), as.numeric)) %>%
-    mutate(TreeID = TreeID) %>%
+    mutate(Tree = tree.ID) %>%
     rename(Record_Number = RECORD,
            Panel_Temperature = Panel_Temperature_Avg,
            Big_Battery_Voltage = Big_Battery_Voltage_Min,
            Small_Battery_Voltage = Small_Battery_Voltage_Min) %>%
-    select(TreeID, everything())
+    select(Tree, everything())
 }
 
 # Raw to L1 -------------------------------------------------------------
@@ -62,7 +62,7 @@ NAify_small_deltas <- function(x, y, z){
 
 # Makes a character vector with an element for each cable. No inputs needed
 make_port_vector_by_cable <- function(){
-  cable.locations = Station.info2 %>%
+  cable.locations = station.info2 %>%
     select(Cable1:Cable8) %>%
     select(!where(~is.na(unique(.))))
   vec = as.numeric(str_remove(names(cable.locations), "Cable"))
@@ -71,13 +71,13 @@ make_port_vector_by_cable <- function(){
 
 # x is an element of the cable_vector produced in the script. Simply a number between 1 and 8. For each cable, the deltas then ratios are calculated, then organized into a df
 make_ratio_df <- function(x){
-  cable.start = as.numeric(str_split(Station.info2[1,x+1], ":")[[1]][1])
+  cable.start = as.numeric(str_split(station.info2[1,x+1], ":")[[1]][1])
   port.numbers = seq(cable.start, cable.start + 5)
-  HRM_Delta = HRM_Deltas %>%
+  HRM.delta = HRM.deltas %>%
     select(type, Timestamp, all_of(port.numbers))
-  Ratios = HRM_Delta[3:5]/HRM_Delta[6:8]
+  Ratios = HRM.delta[3:5]/HRM.delta[6:8]
   Ratios2 = Ratios %>%
-    bind_cols("Timestamp" = Base_Temp$Timestamp) %>%
+    bind_cols("Timestamp" = base.temp$Timestamp) %>%
     mutate(Cable = x) %>%
     select(Cable, Timestamp, everything())
   colnames(Ratios2) = c("Cable", "Timestamp", "outer", "middle", "inner")
@@ -354,7 +354,7 @@ view_SF_cable <- function(x, y){
     labs(y = "cm / hour") +
     theme_bw() +
     theme(axis.title.x = element_blank()) +
-    ggtitle(str_c(TreeID, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
+    ggtitle(str_c(tree.ID, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
     if(y == "free"){
       facet_wrap(~Position, ncol = 1, scales = "free")
     } else if(y == "fixed"){
@@ -375,7 +375,7 @@ view_SF_cable_daterange <- function(x, y, startdate, enddate){
     labs(y = "cm / hour") +
     theme_bw() +
     theme(axis.title.x = element_blank()) +
-    ggtitle(str_c(TreeID, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
+    ggtitle(str_c(Tree, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
     if(y == "free"){
       facet_wrap(~Position, ncol = 1, scales = "free")
     } else if(y == "fixed"){
@@ -395,7 +395,7 @@ view_SF_cable_after_filtering <- function(x, y, cable){
     labs(y = "cm / hour") +
     theme_bw() +
     theme(axis.title.x = element_blank()) +
-    ggtitle(str_c(TreeID, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
+    ggtitle(str_c(Tree, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
     if(y == "free"){
       facet_wrap(~Position, ncol = 1, scales = "free")
     } else if(y == "fixed"){
@@ -417,7 +417,7 @@ view_SF_cable_after_filtering_daterange <- function(x, y, cable, startdate, endd
     labs(y = "cm / hour") +
     theme_bw() +
     theme(axis.title.x = element_blank()) +
-    ggtitle(str_c(TreeID, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
+    ggtitle(str_c(Tree, "_Cable", unique(x2$Cable), "_HRM Velocity")) +
     if(y == "free"){
       facet_wrap(~Position, ncol = 1, scales = "free")
     } else if(y == "fixed"){
@@ -508,7 +508,7 @@ plot_voltages <- function(x){
 
 # Makes a character vector with an element for each port. Needed to make the before/after dataframe
 make_port_vector_by_probe <- function(){
-  cable.locations = Station.info2 %>%
+  cable.locations = station.info2 %>%
     select(Cable1:Cable8) %>%
     select(!where(~is.na(unique(.))))
   vec = as.numeric(str_remove(names(cable.locations), "Cable"))
@@ -520,32 +520,35 @@ make_port_vector_by_probe <- function(){
 
 # Function to help make before/after heat pulse plots useful to see if heaters failed
 # x is cable#???
+x <- 6
 make_before_after_by_probe <- function(x){
   cable = as.numeric(str_sub(x, start = 1, end = 1))
   placement = str_sub(x, start = 2, end = 2)
-  cable.start = as.numeric(str_split(Station.info2[1,cable+1], ":")[[1]][1])
+  cable.start = as.numeric(str_split(station.info2[1,cable+1], ":")[[1]][1])
   if(placement == "U"){
     port.numbers = seq(cable.start, cable.start + 2)
   } else {
     port.numbers = seq(cable.start + 3, cable.start + 5)
   }
-  Before = Base_Temp %>%
+  Before = base.temp %>%
     select(type, Timestamp, all_of(port.numbers))
-  After = After_Pulse %>%
+  After = after.pulse %>%
     select(type, Timestamp, all_of(port.numbers))
-  Before_After = Before %>%
+  Before.after = Before %>%
     bind_rows(After) %>%
     mutate(Cable = cable,
            Placement = placement) %>%
     select(Cable, Placement, Timestamp, everything())
-  new.names = str_c(names(Before_After)[-(1:4)], "_", probe_wiring_key)
-  colnames(Before_After) = c("Cable", "Placement", "Timestamp", "type", new.names)
-  return(Before_After)
+  new.names = str_c(names(Before.after)[-(1:4)], "_", probe_wiring_key)
+  colnames(Before.after) = c("Cable", "Placement", "Timestamp", "type", new.names)
+  return(Before.after)
 }
 
 # Create the before/after plots to diagnose heater problems
 # x is list dataframe (list element)
 # y is cable number
+# x <- Before_After_List[[6]]
+# y <- 6
 plot_before_after <- function(x){
   x2 = x %>%
     pivot_longer(5:7, names_to = "Position", values_to = "Temperature")
@@ -554,7 +557,7 @@ plot_before_after <- function(x){
     geom_line(aes(x = Timestamp, y = Temperature, color = type)) +
     # ylim(15, 25) +
     scale_x_continuous(breaks = dateBreaks) +
-    ggtitle(str_c(TreeID, "_Cable_", unique(x2$Cable), "_", unique(x2$Placement))) +
+    ggtitle(str_c(tree.ID, "_Cable_", unique(x2$Cable), "_", unique(x2$Placement))) +
     theme_bw() +
     facet_wrap(~Position, scales = "free", ncol = 1) +
     theme(legend.position = "none")
@@ -569,7 +572,7 @@ plot_before_after_point <- function(x){
     geom_point(aes(x = Timestamp, y = Temperature, color = type)) +
     # ylim(15, 25) +
     scale_x_continuous(breaks = dateBreaks) +
-    ggtitle(str_c(TreeID, "_Cable_", unique(x2$Cable), "_", unique(x2$Placement))) +
+    ggtitle(str_c(Tree, "_Cable_", unique(x2$Cable), "_", unique(x2$Placement))) +
     theme_bw() +
     facet_wrap(~Position, scales = "free", ncol = 1) +
     theme(legend.position = "none")

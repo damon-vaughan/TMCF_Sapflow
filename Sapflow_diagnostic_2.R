@@ -5,17 +5,18 @@ needs(tidyverse, lubridate, readxl)
 
 source("SF_Functions.R")
 
-TreeID <- "FB1"
+tree.ID <- "FB2"
 days_ago_to_end <- 1
 days_to_view <- 10
 
-Station.info <- read_excel("Sapflow_data_supporting/Sapflow_station_info.xlsx")
+station.info <- read_excel("Sapflow_data_supporting/Sapflow_station_info.xlsx")
 
-Station.info2 <- Station.info %>%
-  filter(Tree == TreeID)
+station.info2 <- station.info %>%
+  filter(Tree == tree.ID)
 
 # filename <- str_c("SF_DL2/", TreeID, "_Data_Table.dat")
-filename <- str_c("Sapflow_data_import/", TreeID, "_Data_Table.dat")
+# filename <- str_c("Sapflow_data_import/", TreeID, "_Data_Table.dat")
+filename <- str_c("H:/My Drive/TMCF/TMCF_CostaRica_equipo/Data_share/Sapflow_data_share/", tree.ID, "_Data_Table.dat")
 # filename <- str_c("Sapflow_data_import_fullDL/", TreeID, "_Data_Table.dat")
 d <- read_sapflow_dat(filename)
 d2 <- format_sapflow_dat(d)
@@ -32,8 +33,8 @@ d3 <- d2 %>%
   filter(Big_Battery_Voltage != 0,
          Timestamp >= StartDate & Timestamp < EndDate)
 
-Base_Temp <- parse_sfd_columns(d3, "Wood_Temperature", "Base_Temp")
-After_Pulse <- parse_sfd_columns(d3, "After_Heat_Pulse_Temperature", "After_Pulse")
+base.temp <- parse_sfd_columns(d3, "Wood_Temperature", "Base.temp")
+after.pulse <- parse_sfd_columns(d3, "After_Heat_Pulse_Temperature", "After.pulse")
 
 cable_vector <- make_port_vector_by_probe()
 
@@ -44,6 +45,32 @@ lapply(rev(Before_After_List), plot_before_after)
 
 # If you want to see the voltages over time...
 plot_voltages(d2)
+
+# Calculate sap flow velocity ---------------------------------------------
+
+HRM_Deltas_Pre <- after.pulse[,-(65:66)] - base.temp[,-(65:66)]
+HRM.deltas <- HRM_Deltas_Pre %>%
+  bind_cols("Timestamp" = base.temp$Timestamp) %>%
+  mutate(type = "HRM.delta")
+
+cable_vector <- make_port_vector_by_cable()
+
+ratios <- lapply(cable_vector, make_ratio_df)
+velocities <- lapply(ratios, apply_velocity_function)
+
+All.Cables <- bind_rows(velocities) %>%
+  filter(is.na(Timestamp) != T) %>%
+  mutate(Tree = TreeID) %>%
+  select(Tree, everything())
+
+# All.Cables2 <- All.Cables %>%
+#   pivot_longer(4:6, names_to = "Position", values_to = "Velocity")
+
+All.Cables.split <- All.Cables %>%
+  split(~Cable)
+
+# graficos
+lapply(All.Cables.split, view_SF_cable, "fixed")
 
 # !!!!Detenerse aqui ------------------------------------------------------------
 
@@ -67,31 +94,7 @@ Before_After_List <- lapply(cable_vector, make_before_after_by_probe)
 lapply(rev(Before_After_List), plot_before_after_point)
 
 
-# Calculate sap flow velocity ---------------------------------------------
 
-HRM_Deltas_Pre <- After_Pulse[,-(65:66)] - Base_Temp[,-(65:66)]
-HRM_Deltas <- HRM_Deltas_Pre %>%
-  bind_cols("Timestamp" = Base_Temp$Timestamp) %>%
-  mutate(type = "HRM_Delta")
-
-cable_vector <- make_port_vector_by_cable()
-
-ratios <- lapply(cable_vector, make_ratio_df)
-velocities <- lapply(ratios, apply_velocity_function)
-
-All.Cables <- bind_rows(velocities) %>%
-  filter(is.na(Timestamp) != T) %>%
-  mutate(Tree = TreeID) %>%
-  select(Tree, everything())
-
-# All.Cables2 <- All.Cables %>%
-#   pivot_longer(4:6, names_to = "Position", values_to = "Velocity")
-
-All.Cables.split <- All.Cables %>%
-  split(~Cable)
-
-# graficos
-lapply(All.Cables.split, view_SF_cable, "fixed")
 
 # Find how long a battery lasts -------------------------------------------
 # Filter the data to find lines where battery voltage is zero. These are times it was changed.

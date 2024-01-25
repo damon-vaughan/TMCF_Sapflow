@@ -18,40 +18,39 @@ data.support.dir <- file.path("Sapflow_data_supporting")
 # Import to raw ------------------------------------------------------------
 # Appends onto existing raw csv in the write_csv() step, to avoid loading the raw data (time consuming bc of 250+ columns)
 
-tree.vec <- full.tree.vec
+# tree.vec <- full.tree.vec
 # tree.vec <- "FB6"
 
-# i <- "FB6"
-for (i in tree.vec){
+filenames.import <- list.files(data.import.dir, full.names = T)
+
+# i <- filenames.full[1]
+for (i in filenames.import){
   # For use in one of the functions
-  tree.ID <- i
+  tree.ID <- str_sub(i, start = 21, end = 23)
 
   import.log <- read_csv(file.path(data.support.dir,
                                "Sapflow_data_import_log.csv"),
                          show_col_types = F)
 
-  # Bring in the data to be imported
-  filename.in.import <- file.path(data.import.dir,
-                                  str_c(i, "_Data_Table.dat"))
-  import.data <- read_sapflow_dat(filename.in.import)
+  import.data <- read_sapflow_dat(i)
 
   # If there is no raw file, start one
-  filename.in.raw <- file.path(data.raw.dir, str_c(i, "_Sapflow.csv"))
-  if (file.exists(filename.in.raw) == F) {
+  filename.in.raw <- file.path(data.raw.dir, str_c(tree.ID, "_Sapflow.csv"))
+  if (!file.exists(filename.in.raw)) {
 
     import.data2 <- import.data %>%
       format_sapflow_dat()
 
-    write_csv(import.data2, str_c("Sapflow_data_raw/", i, "_Sapflow.csv"))
+    write_csv(import.data2, str_c("Sapflow_data_raw/", tree.ID, "_Sapflow.csv"))
 
-    cat("Started new raw file for", i, "\n")
+    cat("Started new raw file for", tree.ID, "\n")
 
     next
   }
 
   # How current is the raw data? Find timestamp where last import ended
   raw.data.ends <- import.log %>%
-    filter(Tree == i) %>%
+    filter(Tree == tree.ID) %>%
     pull(Last.import)
 
   # How current is the import data?
@@ -68,21 +67,22 @@ for (i in tree.vec){
     missing.data <- round(difftime(min(import.data2$Timestamp), raw.data.ends,
                              units = "days"), 1)
 
+    # use append = T to avoid loading the huge raw files
     write_csv(import.data2, filename.in.raw, append = T)
 
     import.log <- import.log %>%
       mutate(Last.import = case_when(
-        Tree == i ~ import.data.ends,
-        Tree != i ~ Last.import))
+        Tree == tree.ID ~ import.data.ends,
+        Tree != tree.ID ~ Last.import))
 
     write_csv(import.log, file.path(data.support.dir,
                                     "Sapflow_data_import_log.csv"))
 
-    cat("Importing from:", i, "\n",
+    cat("Imported from:", tree.ID, "\n",
         "Duplicates?", duplicated.timestamp, "\n",
         "MissingData?", missing.data, "days", "\n")
   } else {
-    cat("No import needed from ", i, "\n")
+    cat("No import needed from ", tree.ID, "\n")
   }
 }
 
@@ -103,7 +103,7 @@ station.info <- read_excel(file.path(data.support.dir,
 tree.vec <- full.tree.vec
 # tree.vec <- "FB6"
 
-i <- "FB6"
+# i <- "ET1"
 for (i in tree.vec){
   station.info2 <- station.info %>%
     filter(Tree == i)
@@ -114,8 +114,7 @@ for (i in tree.vec){
 
   # Read in raw file
   raw <- read_csv(file.path(data.raw.dir, str_c(i, "_Sapflow.csv")),
-                show_col_types = F) %>%
-    rename(Tree = TreeID, Timestamp = Time)
+                show_col_types = F)
   new.data.ends <- max(raw$Timestamp)
 
   if(new.data.ends > old.data.ends){
@@ -127,12 +126,12 @@ for (i in tree.vec){
   }
 
   # Parse base temp and after pulse values, convert to NA where necesary
-  base.temp <- parse_sfd_columns(d, "Wood_Temperature", "Base_Temp") %>%
+  base.temp <- parse_sfd_columns(d, "Wood_Temperature", "Base.temp") %>%
     mutate(across(
       where(is.numeric), ~NAify_numeros_locos(., NA.temp.min, NA.temp.max)))
 
   after.pulse <- parse_sfd_columns(d, "After_Heat_Pulse_Temperature",
-                                   "After_Pulse") %>%
+                                   "After.pulse") %>%
     mutate(across(
       where(is.numeric), ~NAify_numeros_locos(., NA.temp.min, NA.temp.max)))
 
@@ -142,7 +141,7 @@ for (i in tree.vec){
   # Bind the time column back on, and remove erratic values
   HRM.deltas <- HRM.deltas.pre %>%
     bind_cols("Timestamp" = base.temp$Timestamp) %>%
-    mutate(type = "HRM_Delta") %>%
+    mutate(type = "HRM.delta") %>%
     mutate(across(
       .cols = where(is.numeric),
       .fns = ~NAify_small_deltas(.x, NA.delta.min, NA.delta.max)
@@ -205,11 +204,23 @@ SF.actions2 <- SF.actions %>%
   ungroup()
 
 # Bad data sheet identifies windows of bad data; needs extensive processing here
-bad.data <- read_excel(file.path("Sapflow_data_supporting",
-                                 "Sapflow_bad_data_windows.xlsx")) %>%
+# My original sheet
+# bad.data <- read_excel(file.path(data.support.dir,
+#                                  "Sapflow_bad_data_windows.xlsx")) %>%
+#   mutate(Start = as.POSIXct(Start, format = c("%Y-%m-%d %H:%M"), tz = "UTC"),
+#          End = as.POSIXct(End, format = c("%Y-%m-%d %H:%M"), tz = "UTC")) %>%
+#   select(-Note, -Notes)
+
+# Jose's sheet
+bad.data <- read_excel(file.path(data.support.dir, "Sapflow_bad_data_windows_Jose.xlsx"),
+                       sheet = "ET") %>%
+  bind_rows(read_excel(file.path(data.support.dir, "Sapflow_bad_data_windows_Jose.xlsx"),
+                       sheet = "FB")) %>%
+  bind_rows(read_excel(file.path(data.support.dir, "Sapflow_bad_data_windows_Jose.xlsx"),
+                       sheet = "TV")) %>%
   mutate(Start = as.POSIXct(Start, format = c("%Y-%m-%d %H:%M"), tz = "UTC"),
          End = as.POSIXct(End, format = c("%Y-%m-%d %H:%M"), tz = "UTC")) %>%
-  select(-Note, -Notes)
+  select(-Notes)
 
 sfd.bad <-  bad.data %>%
   pivot_longer(4:27, names_to = "Cable_Location", values_to = "Affects") %>%
@@ -236,8 +247,8 @@ sfd.bad.expanded <- sfd.bad2 %>%
   distinct()
 
 # Succeeded thru FB5
-# full.tree.vec <- "FB6"
-# i <- "FB6"
+# full.tree.vec <- "FB2"
+# i <- "FB2"
 hampel.flags <- NULL
 for(i in full.tree.vec){
   d <-  read_csv(str_c("Sapflow_data_L1/", i, "_Sapflow_L1.csv"),
@@ -318,7 +329,7 @@ needs(tidyverse, readxl, here, lubridate)
 
 MC.dir <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/TMCF_Microclimate"
 
-i <- "ET1"
+# i <- "ET1"
 for(i in full.tree.vec){
 
   filename.in.L3 <- file.path(MC.dir, "Microclimate_data_L3",
@@ -378,9 +389,9 @@ zeroes2 <- zeroes %>%
            (periodBegin != ymd_hms("2022-10-31 18:00:00", tz = "UTC") &
            periodBegin != ymd_hms("2022-10-30 18:00:00", tz = "UTC")))
 
-full.tree.vec <- full.tree.vec
+# full.tree.vec <- "FB2"
 baseline.flags <- NULL
-i <- "ET1"
+# i <- "ET1"
 for(i in full.tree.vec){
 
   zero.filename <- zero.filenames[which(str_detect(zero.filenames, i) == T)]
@@ -482,7 +493,7 @@ write_csv(baseline.flags, file.path("Sapflow_data_supporting",
 TreeVec <- FullTreeVec
 
 read_sheet <- function(x){
-  sheet = read_excel("C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Site info/Maintenance notes/SensorNotes_All.xlsx", sheet = x) %>%
+  sheet = read_excel("C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance notes/SensorNotes_All.xlsx", sheet = x) %>%
     filter(Part == "Cable 1" | Part == "Cable 2" | Part == "Cable 3" | Part == "Cable 4" |
              Part == "Cable 5" | Part == "Cable 6" | Part == "Cable 7" | Part == "Cable 8") %>%
     mutate(Tree = x) %>%
