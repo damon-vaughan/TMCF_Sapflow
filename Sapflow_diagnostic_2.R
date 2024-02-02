@@ -5,7 +5,7 @@ needs(tidyverse, lubridate, readxl)
 
 source("SF_Functions.R")
 
-tree.ID <- "FB2"
+tree.ID <- "FB3"
 days_ago_to_end <- 1
 days_to_view <- 10
 
@@ -14,9 +14,10 @@ station.info <- read_excel("Sapflow_data_supporting/Sapflow_station_info.xlsx")
 station.info2 <- station.info %>%
   filter(Tree == tree.ID)
 
+# filename <- str_c("C:/Users/vaug8/Desktop/Data_temp/", tree.ID, "_Data_Table.dat")
+filename <- str_c("Sapflow_backups/2024-01-23/", tree.ID, "_Data_Table.dat")
 # filename <- str_c("SF_DL2/", TreeID, "_Data_Table.dat")
 # filename <- str_c("Sapflow_data_import/", TreeID, "_Data_Table.dat")
-filename <- str_c("H:/My Drive/TMCF/TMCF_CostaRica_equipo/Data_share/Sapflow_data_share/", tree.ID, "_Data_Table.dat")
 # filename <- str_c("Sapflow_data_import_fullDL/", TreeID, "_Data_Table.dat")
 d <- read_sapflow_dat(filename)
 d2 <- format_sapflow_dat(d)
@@ -60,7 +61,7 @@ velocities <- lapply(ratios, apply_velocity_function)
 
 All.Cables <- bind_rows(velocities) %>%
   filter(is.na(Timestamp) != T) %>%
-  mutate(Tree = TreeID) %>%
+  mutate(Tree = tree.ID) %>%
   select(Tree, everything())
 
 # All.Cables2 <- All.Cables %>%

@@ -523,18 +523,18 @@ d3 <- d2 %>%
 
 write_csv(d3, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
 
-# Other: Rollback raw  -------------------------------------------------------
+# Other: Rollback import  -------------------------------------------------------
 # Roll back Raw data if there was ever an import problem. Particularly needed if a config change ever happens
-# Only applies to Raw data, no other type is appended. L1, L2, and L3 are written over every time
+# Only applies to Raw and L1 data
 
-tree.ID <- "FB6"
-rollback.to <- "2023-11-20 00:00:01"
+tree.ID <- "TV1"
+rollback.to <- "2024-01-02 09:00:00"
 
 # Only do one at a time, but the for loop is just a trick to get it to run all at once
-i <- "FB6"
+# i <- "FB6"
 for(i in tree.ID){
   Raw <- read_csv(file.path("Sapflow_data_raw", str_c(tree.ID, "_Sapflow.csv"))) %>%
-    filter(Time <= as_datetime(rollback.to))
+    filter(Timestamp <= as_datetime(rollback.to))
   write_csv(Raw, file.path("Sapflow_data_raw", str_c(tree.ID, "_Sapflow.csv")))
   cat("Raw: rolled back ", i, "to", rollback.to, "\n")
 
