@@ -1,5 +1,6 @@
 # Damon's sapflow data processing script. Last update December 2023
 
+# devtools::install_github("stulacy/filters")
 library(needs)
 needs(tidyverse, readxl, lubridate, filters, zoo)
 
@@ -22,8 +23,9 @@ data.support.dir <- file.path("Sapflow_data_supporting")
 # tree.vec <- "FB6"
 
 filenames.import <- list.files(data.import.dir, full.names = T)
+trees.import <- str_sub(filenames.import, start = 21, end = 23)
 
-# i <- filenames.full[1]
+# i <- filenames.import[1]
 for (i in filenames.import){
   # For use in one of the functions
   tree.ID <- str_sub(i, start = 21, end = 23)
@@ -100,10 +102,12 @@ NA.delta.max <- 3
 station.info <- read_excel(file.path(data.support.dir,
                                      "Sapflow_station_info.xlsx"))
 
-tree.vec <- full.tree.vec
+# choose full.tree.vec for all or trees.import for just the most recent changes
+# tree.vec <- full.tree.import
+tree.vec <- trees.import
 # tree.vec <- "FB6"
 
-# i <- "ET1"
+# i <- "TV4"
 for (i in tree.vec){
   station.info2 <- station.info %>%
     filter(Tree == i)
@@ -115,7 +119,7 @@ for (i in tree.vec){
   # Read in raw file
   raw <- read_csv(file.path(data.raw.dir, str_c(i, "_Sapflow.csv")),
                 show_col_types = F)
-  new.data.ends <- max(raw$Timestamp)
+  new.data.ends <- max(raw$Timestamp, na.rm = T)
 
   if(new.data.ends > old.data.ends){
     d <- raw %>%
@@ -246,11 +250,15 @@ sfd.bad.expanded <- sfd.bad2 %>%
   unnest(bad.data) %>%
   distinct()
 
-# Succeeded thru FB5
-# full.tree.vec <- "FB2"
-# i <- "FB2"
+# choose full.tree.vec for all or trees.import for just the most recent changes
+# tree.vec <- full.tree.import
+tree.vec <- trees.import
+# tree.vec <- "TV1"
+# i <- "TV1"
+
 hampel.flags <- NULL
-for(i in full.tree.vec){
+
+for(i in tree.vec){
   d <-  read_csv(str_c("Sapflow_data_L1/", i, "_Sapflow_L1.csv"),
                  show_col_types = F)
 
@@ -319,7 +327,7 @@ write_csv(hampel.flags,
 ## Calculate zeroes --------------------------------------------------------
 
 library(needs)
-needs(tidyverse, readxl, here, lubridate)
+needs(tidyverse, readxl, lubridate)
 
 # Thresholds where water is not moving in the tree:
 # LWS.threshold <- 25 #leaf should be dry
@@ -329,7 +337,8 @@ needs(tidyverse, readxl, here, lubridate)
 
 MC.dir <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/TMCF_Microclimate"
 
-# i <- "ET1"
+# full.tree.vec <- "TV1"
+# i <- "TV4"
 for(i in full.tree.vec){
 
   filename.in.L3 <- file.path(MC.dir, "Microclimate_data_L3",
@@ -362,8 +371,11 @@ for(i in full.tree.vec){
     adjust6amTo6pm() %>%
     mutate(Tree = i)
 
+  # write_csv(zeroes2, file.path("Sapflow_data_supporting", "Zeroes",
+  #                              str_c(i, "_Zeroes_", max.date, ".csv")))
   write_csv(zeroes2, file.path("Sapflow_data_supporting", "Zeroes",
-                               str_c(i, "_Zeroes_", max.date, ".csv")))
+                               str_c(i, "_Zeroes.csv")))
+
   cat("finished with", i, "\n")
 }
 
@@ -373,8 +385,9 @@ zero.filenames <- list.files(file.path("Sapflow_data_supporting", "Zeroes"),
                         full.names = T)
 
 zeroes <- lapply(zero.filenames, read_csv, show_col_types = F) %>%
-  bind_rows()
-write_csv(zeroes, file.path("Sapflow_data_supporting", "Zeroes_full.csv"))
+  bind_rows() %>%
+  distinct()
+# write_csv(zeroes, file.path("Sapflow_data_supporting", "Zeroes_full.csv"))
 
 # SF.actions needed to identify when sensors were moved
 SF.actions <- read_csv(file.path("Sapflow_data_supporting",
@@ -391,8 +404,14 @@ zeroes2 <- zeroes %>%
 
 # full.tree.vec <- "FB2"
 baseline.flags <- NULL
-# i <- "ET1"
-for(i in full.tree.vec){
+# i <- "TV4"
+
+# choose full.tree.vec for all or trees.import for just the most recent changes
+# tree.vec <- "TV1"
+tree.vec <- trees.import
+# tree.vec <- full.tree.vec
+
+for(i in tree.vec){
 
   zero.filename <- zero.filenames[which(str_detect(zero.filenames, i) == T)]
 
@@ -488,12 +507,21 @@ for(i in full.tree.vec){
 write_csv(baseline.flags, file.path("Sapflow_data_supporting",
                                     str_c("Baseline_flags.csv")))
 
-# Other: Sensor changes --------------------------------------------
 
-TreeVec <- FullTreeVec
+# Corrections and other -------------------------------------------------------------
+
+## Sensor changes --------------------------------------------
+
+tree.vec <- full.tree.vec
+
+laptop.filepath <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance notes"
+desktop.filepath <- "C:/Users/User/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance notes"
+
+# change here
+filepath <- desktop.filepath
 
 read_sheet <- function(x){
-  sheet = read_excel("C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance notes/SensorNotes_All.xlsx", sheet = x) %>%
+  sheet = read_excel(file.path(filepath, "SensorNotes_All.xlsx"), sheet = x) %>%
     filter(Part == "Cable 1" | Part == "Cable 2" | Part == "Cable 3" | Part == "Cable 4" |
              Part == "Cable 5" | Part == "Cable 6" | Part == "Cable 7" | Part == "Cable 8") %>%
     mutate(Tree = x) %>%
@@ -506,29 +534,24 @@ d <- lapply(full.tree.vec, read_sheet) %>%
   bind_rows() %>%
   na.omit()
 
+# Warning ok- just bc most entries don't have notes
 d2 <- d %>%
   mutate(Cable = str_sub(Cable, start = 7, end = 8)) %>%
   mutate(Date = str_sub(Date, start = 1, end = 10),
          ToD = "10:00:00",
          Timestamp = str_c(Date, ToD, sep = " ")) %>%
+  separate(Action, into = c("Action", "Junk"), sep = ";") %>%
   select(Tree, Cable, Timestamp, Action) %>%
   mutate(Timestamp = ymd_hms(Timestamp, tz = "UTC"))
 
-d3 <- d2 %>%
-  mutate(Action = case_when(
-    str_detect(Action, "ove") == T & str_detect(Action, "eplace") == T ~ "MR",
-    str_detect(Action, "ove") == T ~ "M",
-    str_detect(Action, "eplace") == T ~ "R")
-  )
+write_csv(d2, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
 
-write_csv(d3, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
-
-# Other: Rollback import  -------------------------------------------------------
+## Rollback import  -------------------------------------------------------
 # Roll back Raw data if there was ever an import problem. Particularly needed if a config change ever happens
 # Only applies to Raw and L1 data
 
-tree.ID <- "TV1"
-rollback.to <- "2024-01-02 09:00:00"
+tree.ID <- "FB2"
+rollback.to <- "2024-02-08 09:15:00"
 
 # Only do one at a time, but the for loop is just a trick to get it to run all at once
 # i <- "FB6"
@@ -549,6 +572,40 @@ for(i in tree.ID){
   write_csv(import.log, file.path(data.support.dir, "Sapflow_data_import_log.csv"))
   cat("Adjusted import log for ", i, "\n")
 }
+
+## Add missed data back in ----------------------------------------
+
+tree.ID <- "TV4"
+filename <- file.path(data.import.dir, "TV4-Sap_Flow_Station_Data_Table_2023-12-05_2023-12-23.dat")
+
+# Read it in
+import.data <- read_sapflow_dat(filename) %>%
+  format_sapflow_dat()
+
+
+
+# Append to raw
+filename.in.raw <- file.path(data.raw.dir, str_c(tree.ID, "_Sapflow.csv"))
+raw.data <- read_csv(filename.in.raw)
+
+full.data <- raw.data %>%
+  bind_rows(import.data) %>%
+  distinct() %>%
+  arrange(Tree, Timestamp)
+
+write_csv(full.data, filename.in.raw)
+
+# Then, go to "Raw to L1" and go line by line, processing import.data and appending onto L1. In the for loop, skip to where base.temp is created. Use the following 4 instead of the ones that would be created in the loop
+d <- import.data
+new.data.starts <- min(import.data$Timestamp, na.rm = T)
+new.data.ends <- max(import.data$Timestamp, na.rm = T)
+old.data.ends <- min(import.data$Timestamp, na.rm = T) - minutes(15)
+i <- tree.ID
+
+# Remove the Timestamps coinciding with the new data, because they were made explicit and filled out with NAs in the L1 processing step. Thus, distinct() does not take care of them.
+L1 <- read_csv(file.path("Sapflow_data_L1", str_c(tree.ID, "_Sapflow_L1.csv"))) %>%
+  filter(Timestamp < new.data.starts | Timestamp > new.data.ends)
+
 
 
 # Other: Work directly with the files ------------------------------------
@@ -583,12 +640,12 @@ dat.dupes <- dat.test %>%
 
 ## Raw ---------------------------------------------------------------------
 
-tree.ID <- "FB6"
+tree.ID <- "TV4"
 
 raw.test <-  read_csv(str_c("Sapflow_data_raw/", tree.ID, "_Sapflow.csv"))
 
 raw.dupes <- raw.test %>%
-  dplyr::group_by(tree.ID, Time) %>%
+  dplyr::group_by(Tree, Timestamp) %>%
   dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
   dplyr::filter(n > 1L)
 

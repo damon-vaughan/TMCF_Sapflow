@@ -269,6 +269,7 @@ adjust6amTo6pm <- function(x){
 }
 
 # Make long dataframe of all times meeting the zero criteria.
+# zeroes.og <- zeroes.sub
 expand_zeroes <- function(zeroes.og){
   # results <- data.frame(Timestamp = min(df$Timestamp, na.rm = T), Group = 0)
   results <- NULL
@@ -284,6 +285,9 @@ expand_zeroes <- function(zeroes.og){
 }
 
 # Use period start and end times to look up the values to be used in baselining. Values need to be averaged, cleaned, and prepped
+# df <- d
+# zeroes.exp <- expanded.zeroes
+# zeroes.og <- zeroes.sub
 find_baselining_values <- function(df, zeroes.exp, zeroes.og){
   valsToUse <- df %>%
     left_join(zeroes.exp, by = "Timestamp") %>%

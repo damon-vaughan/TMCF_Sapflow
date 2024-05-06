@@ -1,9 +1,17 @@
 
 library(needs)
-needs(tidyverse, here, readxl, lubridate, corrr)
+needs(tidyverse, readxl, lubridate, corrr)
 
-# Functions:
 source("SF_Functions.R")
+options(readr.show_col_types = FALSE)
+
+
+# Directories -------------------------------------------------------------
+
+# Directory paths
+data.support.dir <- file.path("Sapflow_data_supporting")
+MC.dir <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/TMCF_Microclimate"
+analysis.dir <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/TMCF_Analysis/TMCF_data_raw"
 
 
 # Check small batt voltages -----------------------------------------------
