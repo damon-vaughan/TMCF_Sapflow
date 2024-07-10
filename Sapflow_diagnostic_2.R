@@ -5,7 +5,7 @@ needs(tidyverse, lubridate, readxl)
 
 source("SF_Functions.R")
 
-tree.ID <- "FB3"
+tree.ID <- "ET1"
 days_ago_to_end <- 1
 days_to_view <- 10
 
@@ -15,7 +15,7 @@ station.info2 <- station.info %>%
   filter(Tree == tree.ID)
 
 # filename <- str_c("C:/Users/vaug8/Desktop/Data_temp/", tree.ID, "_Data_Table.dat")
-filename <- str_c("Sapflow_backups/2024-01-23/", tree.ID, "_Data_Table.dat")
+filename <- str_c("Sapflow_backups/2024-07-09/", tree.ID, "_Data_Table.dat")
 # filename <- str_c("SF_DL2/", TreeID, "_Data_Table.dat")
 # filename <- str_c("Sapflow_data_import/", TreeID, "_Data_Table.dat")
 # filename <- str_c("Sapflow_data_import_fullDL/", TreeID, "_Data_Table.dat")

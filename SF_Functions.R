@@ -157,6 +157,7 @@ apply_letter <- function(x){
 #   return(output)
 # }
 
+# x <- d5.split[[1]]
 apply_hampel_to_SF2 <- function(x){
   x2 <- x %>%
     mutate(outer_vel_hampel = filters::hampel(outer_vel, window_size = 48,

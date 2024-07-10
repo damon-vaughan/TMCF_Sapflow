@@ -31,7 +31,7 @@ ui <- basicPage(
 
       sliderInput("daterange",
                   label = h4("Select date range"),
-                  min = ymd_hms("2022-09-01 00:00:00", tz = "UTC"),
+                  min = ymd_hms("2022-07-01 00:00:00", tz = "UTC"),
                   max = max(import.log$Last.import),
                   value = c(ymd_hms("2022-09-01 00:00:00", tz = "UTC"),
                             max(import.log$Last.import))),

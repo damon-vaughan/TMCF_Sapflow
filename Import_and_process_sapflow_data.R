@@ -3,7 +3,7 @@
 # devtools::install_github("stulacy/filters")
 library(needs)
 needs(tidyverse, readxl, lubridate, filters, zoo)
-
+# library(filters)
 options(readr.show_col_types = FALSE)
 
 # Constants, functions, and directories -----------------------------------
@@ -25,7 +25,7 @@ data.support.dir <- file.path("Sapflow_data_supporting")
 filenames.import <- list.files(data.import.dir, full.names = T)
 trees.import <- str_sub(filenames.import, start = 21, end = 23)
 
-# i <- filenames.import[1]
+i <- filenames.import[1]
 for (i in filenames.import){
   # For use in one of the functions
   tree.ID <- str_sub(i, start = 21, end = 23)
@@ -253,7 +253,7 @@ sfd.bad.expanded <- sfd.bad2 %>%
 # choose full.tree.vec for all or trees.import for just the most recent changes
 # tree.vec <- full.tree.import
 tree.vec <- trees.import
-# tree.vec <- "TV1"
+# tree.vec <- c("ET1", "ET2", "ET7", "ET8", "FB3", "FB6", "TV3", "TV4")
 # i <- "TV1"
 
 hampel.flags <- NULL
@@ -335,20 +335,24 @@ needs(tidyverse, readxl, lubridate)
 # VPD.threshold <- 0.025 #low atmospheric demand for water
 # VPD.thresh.ET1 <- 0.05
 
-MC.dir <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/TMCF_Microclimate"
+# Laptop
+# MC.dir <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/TMCF_Microclimate"
+
+# Desktop
+MC.dir <- "C:/Users/User/OneDrive - University of Kentucky/TMCF/Continuous_data/TMCF_Microclimate"
 
 # full.tree.vec <- "TV1"
 # i <- "TV4"
 for(i in full.tree.vec){
 
-  filename.in.L3 <- file.path(MC.dir, "Microclimate_data_L3",
-                              str_c(i, "MC", "L3.csv", sep = "_"))
+  filename.in.L4 <- file.path(MC.dir, "Microclimate_data_L4",
+                              str_c(i, "MC", "L4.csv", sep = "_"))
 
-  if(!file.exists(filename.in.L3)){
+  if(!file.exists(filename.in.L4)){
     next
   }
 
-  full.df <- read_csv(filename.in.L3,
+  full.df <- read_csv(filename.in.L4,
                      show_col_types = F) %>%
     select(Tree, Station, Timestamp, Solar, VPD, Wetness, RH) %>%
     filter(Station != "S5")
@@ -550,8 +554,8 @@ write_csv(d2, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
 # Roll back Raw data if there was ever an import problem. Particularly needed if a config change ever happens
 # Only applies to Raw and L1 data
 
-tree.ID <- "FB2"
-rollback.to <- "2024-02-08 09:15:00"
+tree.ID <- "TV4"
+rollback.to <- "2024-06-13 08:15:00"
 
 # Only do one at a time, but the for loop is just a trick to get it to run all at once
 # i <- "FB6"
