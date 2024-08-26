@@ -25,7 +25,7 @@ data.support.dir <- file.path("Sapflow_data_supporting")
 filenames.import <- list.files(data.import.dir, full.names = T)
 trees.import <- str_sub(filenames.import, start = 21, end = 23)
 
-i <- filenames.import[1]
+# i <- filenames.import[1]
 for (i in filenames.import){
   # For use in one of the functions
   tree.ID <- str_sub(i, start = 21, end = 23)
@@ -107,7 +107,7 @@ station.info <- read_excel(file.path(data.support.dir,
 tree.vec <- trees.import
 # tree.vec <- "FB6"
 
-# i <- "TV4"
+# i <- "TV3"
 for (i in tree.vec){
   station.info2 <- station.info %>%
     filter(Tree == i)
@@ -254,6 +254,7 @@ sfd.bad.expanded <- sfd.bad2 %>%
 # tree.vec <- full.tree.import
 tree.vec <- trees.import
 # tree.vec <- c("ET1", "ET2", "ET7", "ET8", "FB3", "FB6", "TV3", "TV4")
+# tree.vec <- "ET4"
 # i <- "TV1"
 
 hampel.flags <- NULL
@@ -518,12 +519,13 @@ write_csv(baseline.flags, file.path("Sapflow_data_supporting",
 
 tree.vec <- full.tree.vec
 
-laptop.filepath <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance notes"
-desktop.filepath <- "C:/Users/User/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance notes"
+laptop.filepath <- "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance_notes"
+desktop.filepath <- "C:/Users/User/OneDrive - University of Kentucky/TMCF/Continuous_data/Maintenance_notes"
 
 # change here
 filepath <- desktop.filepath
 
+x <- "ET1"
 read_sheet <- function(x){
   sheet = read_excel(file.path(filepath, "SensorNotes_All.xlsx"), sheet = x) %>%
     filter(Part == "Cable 1" | Part == "Cable 2" | Part == "Cable 3" | Part == "Cable 4" |
@@ -554,8 +556,8 @@ write_csv(d2, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
 # Roll back Raw data if there was ever an import problem. Particularly needed if a config change ever happens
 # Only applies to Raw and L1 data
 
-tree.ID <- "TV4"
-rollback.to <- "2024-06-13 08:15:00"
+tree.ID <- "TV3"
+rollback.to <- "2024-07-24 08:30:00"
 
 # Only do one at a time, but the for loop is just a trick to get it to run all at once
 # i <- "FB6"
@@ -579,17 +581,15 @@ for(i in tree.ID){
 
 ## Add missed data back in ----------------------------------------
 
-tree.ID <- "TV4"
-filename <- file.path(data.import.dir, "TV4-Sap_Flow_Station_Data_Table_2023-12-05_2023-12-23.dat")
+tree.ID <- "ET4"
+filename <- file.path("Sapflow_data_import", "ET4_Data_Table.dat")
 
 # Read it in
 import.data <- read_sapflow_dat(filename) %>%
   format_sapflow_dat()
 
-
-
 # Append to raw
-filename.in.raw <- file.path(data.raw.dir, str_c(tree.ID, "_Sapflow.csv"))
+filename.in.raw <- file.path("Sapflow_data_raw", str_c(tree.ID, "_Sapflow.csv"))
 raw.data <- read_csv(filename.in.raw)
 
 full.data <- raw.data %>%
@@ -597,19 +597,19 @@ full.data <- raw.data %>%
   distinct() %>%
   arrange(Tree, Timestamp)
 
+which(duplicated(full.data$Timestamp) == T)
+
 write_csv(full.data, filename.in.raw)
 
-# Then, go to "Raw to L1" and go line by line, processing import.data and appending onto L1. In the for loop, skip to where base.temp is created. Use the following 4 instead of the ones that would be created in the loop
+# Then, go to "Raw to L1" and go line by line, processing import.data and appending onto L1. In the for loop, skip to where base.temp is created. Use the following 5 (d, new.data.starts, new.data.ends, L1, and old.data.ends) instead of the ones that would be created in the loop
 d <- import.data
 new.data.starts <- min(import.data$Timestamp, na.rm = T)
 new.data.ends <- max(import.data$Timestamp, na.rm = T)
-old.data.ends <- min(import.data$Timestamp, na.rm = T) - minutes(15)
-i <- tree.ID
-
-# Remove the Timestamps coinciding with the new data, because they were made explicit and filled out with NAs in the L1 processing step. Thus, distinct() does not take care of them.
+# For L1, remove the Timestamps coinciding with the new data, because they were made explicit and filled out with NAs in the L1 processing step. Thus, distinct() does not take care of them.
 L1 <- read_csv(file.path("Sapflow_data_L1", str_c(tree.ID, "_Sapflow_L1.csv"))) %>%
   filter(Timestamp < new.data.starts | Timestamp > new.data.ends)
-
+old.data.ends <- min(import.data$Timestamp, na.rm = T) - minutes(15)
+i <- tree.ID
 
 
 # Other: Work directly with the files ------------------------------------
