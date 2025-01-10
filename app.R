@@ -4,6 +4,9 @@ needs(shiny, tidyverse, lubridate)
 options(readr.show_col_types = FALSE)
 source("app_functions_SF.R")
 
+# This only needed for the download all trees option
+filenames <- list.files(file.path("Sapflow_data_L3"), full.names = T)
+
 import.log <- read_csv(file.path("Sapflow_data_supporting", "Sapflow_data_import_log.csv"))
 
 # Read in maintenance actions so they can be applied to the plot
@@ -21,7 +24,7 @@ zeroes <- read_csv(file.path("Sapflow_data_supporting", "Zeroes_full.csv"))
 p.width <- 1000
 p.height <- 700
 
-# UI ----------------------------------------------------------------------
+# UI -----------------------------------------------------------
 
 ui <- basicPage(
   titlePanel("Sapflow data portal"),
@@ -84,10 +87,10 @@ ui <- basicPage(
                             choices = c("1", "2", "3", "4",
                                         "5", "6", "7", "8"),
                             selected = "1"),
-               checkboxGroupInput("Cable_subseries",
-                                  label = h4("Select sub-series"),
-                                  choices = c("a", "b", "c", "d"),
-                                  selected = c("a", "b", "c", "d")),
+               # checkboxGroupInput("Cable_subseries",
+               #                    label = h4("Select sub-series"),
+               #                    choices = c("a", "b", "c", "d"),
+               #                    selected = c("a", "b", "c", "d")),
                radioButtons("Time.res",
                             label = h4("Select time resolution"),
                             choices = c("15 Min", "Hourly", "Daily", "Weekly"),
@@ -95,12 +98,23 @@ ui <- basicPage(
 
       titlePanel("Download options"),
 
-      radioButtons("Time_format",
-                   label = h4("Select time format"),
-                   choices = list("ISO", "Excel_ready"),
-                   selected = "ISO"),
+      radioButtons("Download_amount",
+                   label = h4("Download multiple series?"),
+                   choices = list("Cable", "Tree", "All_trees"),
+                   selected = "Tree"),
 
-      downloadButton("downloadData", "Download")
+      fluidRow(
+        column(6, actionButton("DL_R", "Build download for R")),
+        column(6, actionButton("DL_Excel", "Build download for Excel"))
+        ),
+
+      fluidRow(
+        column(6, downloadButton("R_download", "Download data for R")),
+        column(6, downloadButton("Excel_download",
+                                 "Download data for Excel"))
+      )
+
+      # downloadButton("downloadData", "Download")
     ),
 
     mainPanel(
@@ -119,25 +133,34 @@ ui <- basicPage(
   )
 )
 
-# Server -----------------------------------------------------------------
+# Server ------------------------------------------------------
 
 server <- function(input, output, session) {
+  # dataInput <- reactive({
+  #   if(input$Level == "L1") {
+  #     read_csv(file.path(str_c("Sapflow_data_", input$Level),
+  #                      str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")),
+  #            show_col_types = F) %>%
+  #     filter(Cable == input$Cable_view) %>%
+  #     filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+  #              Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))
+  #     } else {
+  #       read_csv(file.path(str_c("Sapflow_data_", input$Level),
+  #                        str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")),
+  #              show_col_types = F) %>%
+  #       filter(Cable == str_c(input$Cable_view, input$Cable_subseries)) %>%
+  #       filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
+  #                Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))}
+  #   })
+
   dataInput <- reactive({
-    if(input$Level == "L1") {
-      read_csv(file.path(str_c("Sapflow_data_", input$Level),
-                       str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")),
-             show_col_types = F) %>%
-      filter(Cable == input$Cable_view) %>%
+    read_csv(file.path(str_c("Sapflow_data_", input$Level),
+                       str_c(input$Tree_view, "_Sapflow_",
+                             input$Level, ".csv"))) %>%
+      filter(str_sub(Cable, start = 1, end = 1) == input$Cable_view) %>%
       filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
                Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))
-      } else {
-        read_csv(file.path(str_c("Sapflow_data_", input$Level),
-                         str_c(input$Tree_view, "_Sapflow_", input$Level, ".csv")),
-               show_col_types = F) %>%
-        filter(Cable == str_c(input$Cable_view, input$Cable_subseries)) %>%
-        filter(Timestamp >= as.POSIXct(input$daterange[1], tz = "UTC")  &
-                 Timestamp <= as.POSIXct(input$daterange[2], tz = "UTC"))}
-    })
+  })
 
   dataInput2 <- reactive({
     if(input$Time.res == "15 Min"){
@@ -220,9 +243,9 @@ server <- function(input, output, session) {
       p2 <- p +
         geom_vline(data = zeroesInput(), aes(xintercept = periodBegin,
                                              y = min(dataInput3()$Velocity, na.rm = T)),
-        color = "blue")} else {
-          p2 <- p
-        }
+                   color = "blue")} else {
+                     p2 <- p
+                   }
 
     if(input$Level == "L3"){
       p3 <- p2 +
@@ -263,7 +286,7 @@ server <- function(input, output, session) {
       facet_wrap(~Position, ncol = 1, scales = "fixed")
   })
 
-  ## Data and summary --------------------------------------------------------
+  ## Data and summary ------------------------------------------
 
   data.for.summaries <- reactive({
     dataInput2() %>%
@@ -282,48 +305,125 @@ server <- function(input, output, session) {
     summarise_sapflow(data.for.summaries())
   })
 
-  ## Download data options ---------------------------------------------------
+  ## Download data options ------------------------------
 
-  data.for.download <- reactive({
-    if(input$Time_format == "ISO"){
+  # This whole chunk is for ISO-formatted downloads, activated by clicking the R button
+  data.for.R.dl <- eventReactive(input$DL_R, {
+    # If cable selected, just download exactly what's on screen
+    if(input$Download_amount == "Cable"){
       dataInput2()
-    } else if(input$Time_format == "Excel_ready"){
+    }
+    # If tree selected, skip the line where it filters to cable
+    else if(input$Download_amount == "Tree"){
+      read_csv(file.path("Sapflow_data_L3",
+                         str_c(input$Tree_view, "_Sapflow_L3.csv"))) %>%
+        filter(Timestamp >= as.POSIXct(input$daterange[1],
+                                       tz = "UTC")  &
+                 Timestamp <= as.POSIXct(input$daterange[2],
+                                         tz = "UTC"))
+    }
+    # If all selected, must do an lapply line
+    else if(input$Download_amount == "All_trees"){
+      bind_rows(lapply(filenames, read_csv)) %>%
+        filter(Timestamp >= as.POSIXct(input$daterange[1],
+                                       tz = "UTC")  &
+                 Timestamp <= as.POSIXct(input$daterange[2],
+                                         tz = "UTC"))
+    }
+  })
+
+  output$R_download <- downloadHandler(
+    filename = function() {
+      if(input$Download_amount == "All_trees"){
+        x <- "AllTrees"}
+      else {
+        x <- str_c(input$Tree_view, input$Download_amount, sep = "_")}
+      x2 <- str_c(str_c(x,
+                        str_sub(as.character(input$daterange[1]),
+                                start = 1, end = 10),
+                        str_sub(as.character(input$daterange[2]),
+                                start = 1, end = 10),
+                        sep = "_"), ".csv")
+      return(x2)
+    },
+    content = function(file) {
+      write_csv(data.for.R.dl(), file)
+    }
+  )
+
+  # This whole chunk for unformatted downloads suitable for Excel, activated by clicking that button
+  data.for.Excel.dl <- eventReactive(input$DL_Excel, {
+    # If cable selected, just download exactly what's on screen
+    if(input$Download_amount == "Cable"){
       dataInput2() %>%
+        mutate(Timestamp = as.character(Timestamp))
+    }
+    # If tree selected, skip the line where it filters to cable
+    else if(input$Download_amount == "Tree"){
+      read_csv(file.path("Sapflow_data_L3",
+                         str_c(input$Tree_view, "_Sapflow_L3.csv"))) %>%
+        filter(Timestamp >= as.POSIXct(input$daterange[1],
+                                       tz = "UTC")  &
+                 Timestamp <= as.POSIXct(input$daterange[2],
+                                         tz = "UTC")) %>%
+        mutate(Timestamp = as.character(Timestamp))
+    }
+    # If all selected, must do an lapply line
+    else if(input$Download_amount == "All_trees"){
+      bind_rows(lapply(filenames, read_csv)) %>%
+        filter(Timestamp >= as.POSIXct(input$daterange[1],
+                                       tz = "UTC")  &
+                 Timestamp <= as.POSIXct(input$daterange[2],
+                                         tz = "UTC")) %>%
         mutate(Timestamp = as.character(Timestamp))
     }
   })
 
-  output$downloadData <- downloadHandler(
+  # data.for.download <- reactive({
+  #   if(input$Time_format == "ISO"){
+  #     dataInput2()
+  #   } else if(input$Time_format == "Excel_ready"){
+  #     dataInput2() %>%
+  #       mutate(Timestamp = as.character(Timestamp))
+  #   }
+  # })
+
+  output$Excel_download <- downloadHandler(
     filename = function() {
-      str_c(str_c(input$Tree_view, str_c("Cable", input$Cable_view),
-                  str_sub(as.character(input$daterange[1]), start = 1, end = 10),
-                  str_sub(as.character(input$daterange[2]), start = 1, end = 10),
-                  sep = "_"),
-            ".csv")
+      if(input$Download_amount == "All_trees"){
+        x <- "AllTrees"}
+      else {
+        x <- str_c(input$Tree_view, input$Download_amount, sep = "_")}
+      x2 <- str_c(str_c(x,
+                  str_sub(as.character(input$daterange[1]),
+                          start = 1, end = 10),
+                  str_sub(as.character(input$daterange[2]),
+                          start = 1, end = 10),
+                  sep = "_"), ".csv")
+      return(x2)
     },
     content = function(file) {
-      write_csv(data.for.download(), file)
+      write_csv(data.for.Excel.dl(), file)
     }
   )
 }
 
-# Run app ----------------------------------------------------------------
+# Run app ------------------------------------------------------
 
 shinyApp(ui, server)
 
-# Test server -------------------------------------------------------------
+# Test server ------------------------------------------------
 
-# test <- testServer(server, {
-#   session$setInputs(Tree_view = "FB1")
+# test1 <- testServer(server, {
+#   session$setInputs(Tree_view = "ET1")
 #   session$setInputs(Level = "L3")
 #   session$setInputs(Cable_view = "1")
-#   session$setInputs(Cable_subseries = "a")
-#   session$setInputs(Time.res = "Hourly")
+#   session$setInputs(Time.res = "15 Min")
 #   # session$setInputs(daterange = c(min = ymd("2022-09-01"),
 #   #                             max = ymd("2023-04-30")))
-#   session$setInputs(daterange = c(min = ymd("2022-09-01"),
-#                               max = max(import.log$Last.import)))
-#   test <<- print(dataInput2())
+#   session$setInputs(daterange = c(min = ymd("2023-09-01"),
+#                                   max = ymd("2023-12-01")))
+#   test1 <<- print(dataInput2())
 # })
 
 # Testing labels

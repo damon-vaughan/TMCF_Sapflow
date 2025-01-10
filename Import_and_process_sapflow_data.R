@@ -24,6 +24,7 @@ data.support.dir <- file.path("Sapflow_data_supporting")
 
 filenames.import <- list.files(data.import.dir, full.names = T)
 trees.import <- str_sub(filenames.import, start = 21, end = 23)
+# trees.import <- c("ET3", "ET4", "ET5", "ET6", "FB3", "FB6", "FB7", "FB8", "TV1", "TV2")
 
 # i <- filenames.import[1]
 for (i in filenames.import){
@@ -109,8 +110,6 @@ tree.vec <- trees.import
 
 # i <- "TV3"
 for (i in tree.vec){
-  station.info2 <- station.info %>%
-    filter(Tree == i)
 
   # Read in L1 file, to be appended to
   L1 <- read_csv(file.path("Sapflow_data_L1", str_c(i, "_Sapflow_L1.csv")))
@@ -138,6 +137,9 @@ for (i in tree.vec){
                                    "After.pulse") %>%
     mutate(across(
       where(is.numeric), ~NAify_numeros_locos(., NA.temp.min, NA.temp.max)))
+
+  station.info2 <- station.info %>%
+    filter(Tree == i)
 
   # Subtract the before values from the after values
   HRM.deltas.pre <- after.pulse[,-(65:66)] - base.temp[,-(65:66)]
@@ -253,7 +255,7 @@ sfd.bad.expanded <- sfd.bad2 %>%
 # choose full.tree.vec for all or trees.import for just the most recent changes
 # tree.vec <- full.tree.import
 tree.vec <- trees.import
-# tree.vec <- c("ET1", "ET2", "ET7", "ET8", "FB3", "FB6", "TV3", "TV4")
+# tree.vec <- c("FB1", "FB2")
 # tree.vec <- "ET4"
 # i <- "TV1"
 
@@ -512,7 +514,6 @@ for(i in tree.vec){
 write_csv(baseline.flags, file.path("Sapflow_data_supporting",
                                     str_c("Baseline_flags.csv")))
 
-
 # Corrections and other -------------------------------------------------------------
 
 ## Sensor changes --------------------------------------------
@@ -557,7 +558,7 @@ write_csv(d2, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
 # Only applies to Raw and L1 data
 
 tree.ID <- "TV3"
-rollback.to <- "2024-07-24 08:30:00"
+rollback.to <- "2024-08-29 08:45:00"
 
 # Only do one at a time, but the for loop is just a trick to get it to run all at once
 # i <- "FB6"
@@ -581,8 +582,8 @@ for(i in tree.ID){
 
 ## Add missed data back in ----------------------------------------
 
-tree.ID <- "ET4"
-filename <- file.path("Sapflow_data_import", "ET4_Data_Table.dat")
+tree.ID <- "FB2"
+filename <- file.path("Sapflow_data_import", str_c(tree.ID, "_Data_Table.dat"))
 
 # Read it in
 import.data <- read_sapflow_dat(filename) %>%
@@ -601,7 +602,7 @@ which(duplicated(full.data$Timestamp) == T)
 
 write_csv(full.data, filename.in.raw)
 
-# Then, go to "Raw to L1" and go line by line, processing import.data and appending onto L1. In the for loop, skip to where base.temp is created. Use the following 5 (d, new.data.starts, new.data.ends, L1, and old.data.ends) instead of the ones that would be created in the loop
+# Then, go to "Raw to L1" and go line by line, processing import.data and appending onto L1. In the for loop, skip to where base.temp is created. Use the following 6 (d, new.data.starts, new.data.ends, L1, old.data.ends, i) instead of the ones that would be created in the loop
 d <- import.data
 new.data.starts <- min(import.data$Timestamp, na.rm = T)
 new.data.ends <- max(import.data$Timestamp, na.rm = T)
@@ -610,6 +611,75 @@ L1 <- read_csv(file.path("Sapflow_data_L1", str_c(tree.ID, "_Sapflow_L1.csv"))) 
   filter(Timestamp < new.data.starts | Timestamp > new.data.ends)
 old.data.ends <- min(import.data$Timestamp, na.rm = T) - minutes(15)
 i <- tree.ID
+
+# Update import logs
+import.data.ends <- max(import.data$Timestamp)
+
+import.log <- import.log %>%
+  mutate(Last.import = case_when(
+    Tree == tree.ID ~ import.data.ends,
+    Tree != tree.ID ~ Last.import))
+
+write_csv(import.log, file.path(data.support.dir,
+                                "Sapflow_data_import_log.csv"))
+
+## Batch update import logs ------------------------------------------------
+
+# i <- "ET4"
+for(i in trees.import){
+
+  import.log <- read_csv(file.path(data.support.dir, "Sapflow_data_import_log.csv"))
+
+  d <- read_csv(file.path("Sapflow_data_raw", str_c(i, "_Sapflow.csv")))
+
+  # Update import logs
+  import.data.ends <- max(d$Timestamp)
+
+  import.log <- import.log %>%
+    mutate(Last.import = case_when(
+      Tree == i ~ import.data.ends,
+      Tree != i ~ Last.import))
+
+  write_csv(import.log, file.path(data.support.dir, "Sapflow_data_import_log.csv"))
+  cat("Adjusted import log for ", i, "\n")
+}
+
+## Make sapflow maintenance actions sheet -----------------------
+
+TreeVec <- FullTreeVec
+
+read_sheet <- function(x){
+  sheet = read_excel("C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Site info/Maintenance notes/SensorNotes_All.xlsx", sheet = x) %>%
+    filter(Part == "Cable 1" | Part == "Cable 2" | Part == "Cable 3" | Part == "Cable 4" |
+             Part == "Cable 5" | Part == "Cable 6" | Part == "Cable 7" | Part == "Cable 8") %>%
+    mutate(Tree = x) %>%
+    select(Tree, Cable = Part, everything(), -Location)
+  sheet2 = sheet %>%
+    pivot_longer(3:ncol(sheet), names_to = "Date", values_to = "Action")
+}
+
+d <- lapply(FullTreeVec, read_sheet) %>%
+  bind_rows() %>%
+  na.omit()
+
+d2 <- d %>%
+  mutate(Cable = str_sub(Cable, start = 7, end = 8)) %>%
+  mutate(Date = str_sub(Date, start = 1, end = 10),
+         ToD = "10:00:00",
+         Time = str_c(Date, ToD, sep = " ")) %>%
+  select(Tree, Cable, Time, Action) %>%
+  mutate(Time = ymd_hms(Time, tz = "UTC"))
+
+d3 <- d2 %>%
+  mutate(Action = case_when(
+    str_detect(Action, "ove") == T & str_detect(Action, "eplace") == T ~ "MR",
+    str_detect(Action, "ove") == T ~ "M",
+    str_detect(Action, "eplace") == T ~ "R")
+  )
+
+write_csv(d3, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
+write_csv(d3, "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Apps/Sapflow_app/Sapflow_maintenance_actions.csv")
+
 
 
 # Other: Work directly with the files ------------------------------------

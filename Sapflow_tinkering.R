@@ -23,41 +23,7 @@ ggplot(d %>% filter(Big_Battery_Voltage != 0)) +
   geom_hline(yintercept = 11.75) +
   theme_bw()
 
-# Make sapflow maintenance actions sheet -----------------------
 
-TreeVec <- FullTreeVec
-
-read_sheet <- function(x){
-  sheet = read_excel("C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Site info/Maintenance notes/SensorNotes_All.xlsx", sheet = x) %>%
-    filter(Part == "Cable 1" | Part == "Cable 2" | Part == "Cable 3" | Part == "Cable 4" |
-             Part == "Cable 5" | Part == "Cable 6" | Part == "Cable 7" | Part == "Cable 8") %>%
-    mutate(Tree = x) %>%
-    select(Tree, Cable = Part, everything(), -Location)
-  sheet2 = sheet %>%
-    pivot_longer(3:ncol(sheet), names_to = "Date", values_to = "Action")
-}
-
-d <- lapply(FullTreeVec, read_sheet) %>%
-  bind_rows() %>%
-  na.omit()
-
-d2 <- d %>%
-  mutate(Cable = str_sub(Cable, start = 7, end = 8)) %>%
-  mutate(Date = str_sub(Date, start = 1, end = 10),
-         ToD = "10:00:00",
-         Time = str_c(Date, ToD, sep = " ")) %>%
-  select(Tree, Cable, Time, Action) %>%
-  mutate(Time = ymd_hms(Time, tz = "UTC"))
-
-d3 <- d2 %>%
-  mutate(Action = case_when(
-    str_detect(Action, "ove") == T & str_detect(Action, "eplace") == T ~ "MR",
-    str_detect(Action, "ove") == T ~ "M",
-    str_detect(Action, "eplace") == T ~ "R")
-  )
-
-write_csv(d3, "Sapflow_data_supporting/Sapflow_maintenance_actions.csv")
-write_csv(d3, "C:/Users/vaug8/OneDrive - University of Kentucky/TMCF/Continuous_data/Apps/Sapflow_app/Sapflow_maintenance_actions.csv")
 
 
 # Gap filling ---------------------------------------------------
